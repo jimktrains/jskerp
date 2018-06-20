@@ -63,4 +63,32 @@ select * from account;
 --           1 |       1 | inventory    |      1 |
 --           2 |       1 | committed    |      2 |
 -- (2 rows)
+
+-- Place another order 2 orders for 1 of item 1.
+insert into order_item (order_id, item_id) values
+(3, 1),
+(4, 1);
+
+-- See that items for 3 have been and 4 have _not_ been commited since there
+-- isn't enough to fullfil the order.
+select * from order_item;
+--  order_item_id | item_id | order_id |  status
+-- ---------------+---------+----------+-----------
+--              1 |       1 |        1 | committed
+--              2 |       1 |        1 | committed
+--              3 |       1 |        2 | ordered
+--              4 |       1 |        2 | ordered
+--              6 |       1 |        4 | ordered
+--              5 |       1 |        3 | committed
+-- (6 rows)
+
+
+
+-- See that the inventory has not been decremented for 4.
+select * from account;
+--  account_id | item_id | account_type | amount | description
+-- ------------+---------+--------------+--------+-------------
+--           1 |       1 | inventory    |      0 |
+--           2 |       1 | committed    |      3 |
+-- (2 rows)
 ```

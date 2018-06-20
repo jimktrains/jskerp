@@ -37,38 +37,47 @@ returns trigger
 as $$
 begin
   with journal_ordered as (
-    insert into journal (order_id) 
+    insert into journal (order_id)
     select distinct order_id
     from new_order_item
+    order by order_id
     returning *
   ),
   journaled_items as (
     select
-      entry_id,
-      inventory_account.account_id as inventory_account_id,
-      committed_account.account_id as committed_account_id,
-      counted_items.item_id,
-      counted_items.order_id,
-      item_count
-    from (
-      select 
-        item_id,
+        entry_id,
+        potential_inventory_to_commit.item_id,
         order_id,
-        count(*) as item_count
-      from new_order_item
-      group by item_id, order_id
-    ) as counted_items
-    join journal_ordered
-      on journal_ordered.order_id = counted_items.order_id
+        item_count,
+        inventory_account.account_id as inventory_account_id,
+        committed_account.account_id as committed_account_id
+    from (
+      select
+        entry_id,
+        counted_items.item_id,
+        counted_items.order_id,
+        item_count,
+        sum(item_count) over (order by entry_id rows between unbounded preceding and 1 preceding) as inventory_commited
+      from (
+        select
+          item_id,
+          order_id,
+          count(*) as item_count
+        from new_order_item
+        group by item_id, order_id
+      ) as counted_items
+      join journal_ordered
+        on journal_ordered.order_id = counted_items.order_id
+    ) potential_inventory_to_commit
     join account inventory_account
-      on inventory_account.item_id = counted_items.item_id
+      on inventory_account.item_id = potential_inventory_to_commit.item_id
         and inventory_account.account_type = 'inventory'
     join account committed_account
-      on inventory_account.item_id = counted_items.item_id
+      on inventory_account.item_id = potential_inventory_to_commit.item_id
         and committed_account.account_type = 'committed'
-    where item_count < inventory_account.amount
+    where item_count <= (inventory_account.amount - coalesce(inventory_commited, 0))
   ),
-  posted_items as (
+  postings as (
     insert into posting (entry_id, account_id, amount)
     select
       entry_id,
@@ -81,13 +90,21 @@ begin
       committed_account_id as account_id,
       item_count as amount
     from journaled_items
+    returning *
+  ),
+  posted_items as (
+    select item_id, order_id
+    from postings
+    join journaled_items
+      on journaled_items.inventory_account_id = postings.account_id
+      and journaled_items.entry_id = postings.entry_id
   )
   update order_item
   set status = 'committed'
-  from journaled_items
-  where journaled_items.item_id = order_item.item_id
-    and journaled_items.order_id = order_item.order_id;
-  
+  from posted_items
+  where posted_items.item_id = order_item.item_id
+    and posted_items.order_id = order_item.order_id;
+
   return new;
 end;
 $$ language plpgsql;
