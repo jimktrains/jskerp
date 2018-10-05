@@ -92,3 +92,10 @@ select * from account;
 --           2 |       1 | committed    |      3 |
 -- (2 rows)
 ```
+
+
+Version 2
+---------
+
+I'm trying to pare down tables and place functionality in seperate files 
+to make editing easier.
