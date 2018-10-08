@@ -1,101 +1,193 @@
 # pgerp
-An ERP system using PostgreSQL.  Starting as a test of transition tables,
-as such there is a consicous absence of additional indices and foreign keys.
+An proof-of-concept ERP system using PostgreSQL.  Starting as a test of
+transition tables, as such there is a consicous absence of additional indices
+and foreign keys.
+
+One of the premises is that "reality wins". An example would be that, in
+theory, you cannot have a `stock` location that has fewer than 0 items in it.
+However, reality is messy and if someone's going to claim they pulled an item
+from a bin that we think has no items in it, well, by golly, we're wrong and we
+should error when they pull the item. We should probably tell them something's
+wonky and log it, but we shouldn't prevent them from doing the action.
 
 # Test
 
+Running `make clean && make` will drop and create the db "pgerp" (`make clean`)
+and then load the schema and triggers and run a quick sample/test (`make`).
+
 ```sql
--- We should create accounts for all accounts, but for right
--- now this is all we need.
-insert into account (item_id, account_type, amount) values
-(1, 'inventory', 3),
-(1, 'committed', 0);
-select * from account;
---  account_id | item_id | account_type | amount | description
--- ------------+---------+--------------+--------+-------------
---           1 |       1 | inventory    |      3 |
---           2 |       1 | committed    |      0 |
--- (2 rows)
+CREATE SCHEMA
+SET
+CREATE TABLE
+CREATE TABLE
+INSERT 0 5
+CREATE TABLE
+INSERT 0 4
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+SET
+INSERT 0 1
+INSERT 0 6
+ location_id | location_type_id | location_lpn | account_type_id |  sku   | quantity
+-------------+------------------+--------------+-----------------+--------+----------
+           1 | supplier         | megacorp     | supplied        | THING1 |  0.00000
+           2 | receiving        | megacorp     | received        | THING1 |  0.00000
+           3 | stock            | A-B-C-D      | stocked         | THING1 |  0.00000
+           4 | stock            | A-B-C-D      | commited        | THING1 |  0.00000
+           5 | package          | 12345        | commited        | THING1 |  0.00000
+           6 | package          | 12345        | shipped         | THING1 |  0.00000
+(6 rows)
 
+ posting_id | entry_id | location_id | quantity
+------------+----------+-------------+----------
+(0 rows)
 
--- Place an order for 2 of item 1.
-insert into order_item (order_id, item_id) values
-(1, 1),
-(1, 1);
+Received 100 Widgets
+INSERT 0 1
+INSERT 0 2
+ location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
+-------------+------------------+--------------+-----------------+--------+------------
+           3 | stock            | A-B-C-D      | stocked         | THING1 |    0.00000
+           4 | stock            | A-B-C-D      | commited        | THING1 |    0.00000
+           5 | package          | 12345        | commited        | THING1 |    0.00000
+           6 | package          | 12345        | shipped         | THING1 |    0.00000
+           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
+           2 | receiving        | megacorp     | received        | THING1 |  100.00000
+(6 rows)
 
+ posting_id | entry_id | location_id |  quantity
+------------+----------+-------------+------------
+          1 |        1 |           1 | -100.00000
+          2 |        1 |           2 |  100.00000
+(2 rows)
 
--- See that the items have been commited to.
-select * from order_item;
---  order_item_id | item_id | order_id |  status
--- ---------------+---------+----------+-----------
---              1 |       1 |        1 | committed
---              2 |       1 |        1 | committed
--- (2 rows)
+Stocked 50 of those widgets
+INSERT 0 1
+INSERT 0 2
+ location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
+-------------+------------------+--------------+-----------------+--------+------------
+           4 | stock            | A-B-C-D      | commited        | THING1 |    0.00000
+           5 | package          | 12345        | commited        | THING1 |    0.00000
+           6 | package          | 12345        | shipped         | THING1 |    0.00000
+           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
+           3 | stock            | A-B-C-D      | stocked         | THING1 |   50.00000
+           2 | receiving        | megacorp     | received        | THING1 |   50.00000
+(6 rows)
 
--- See that it's decremented from the inventory account.
-select * from account;
---  account_id | item_id | account_type | amount | description
--- ------------+---------+--------------+--------+-------------
---           1 |       1 | inventory    |      1 |
---           2 |       1 | committed    |      2 |
--- (2 rows)
+ posting_id | entry_id | location_id |  quantity
+------------+----------+-------------+------------
+          1 |        1 |           1 | -100.00000
+          2 |        1 |           2 |  100.00000
+          3 |        2 |           2 |  -50.00000
+          4 |        2 |           3 |   50.00000
+(4 rows)
 
--- Place another order for 2 of item 1.
-insert into order_item (order_id, item_id) values
-(2, 1),
-(2, 1);
+Commited 12 of those widgets to fulfilling an order
+INSERT 0 1
+INSERT 0 2
+ location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
+-------------+------------------+--------------+-----------------+--------+------------
+           5 | package          | 12345        | commited        | THING1 |    0.00000
+           6 | package          | 12345        | shipped         | THING1 |    0.00000
+           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
+           2 | receiving        | megacorp     | received        | THING1 |   50.00000
+           4 | stock            | A-B-C-D      | commited        | THING1 |   12.00000
+           3 | stock            | A-B-C-D      | stocked         | THING1 |   38.00000
+(6 rows)
 
--- See that items have _not_ been commited since there isn't enough to
--- fullfil the order.
-select * from order_item;
---  order_item_id | item_id | order_id |  status
--- ---------------+---------+----------+-----------
---              1 |       1 |        1 | committed
---              2 |       1 |        1 | committed
---              3 |       1 |        2 | ordered
---              4 |       1 |        2 | ordered
--- (4 rows)
+ posting_id | entry_id | location_id |  quantity
+------------+----------+-------------+------------
+          1 |        1 |           1 | -100.00000
+          2 |        1 |           2 |  100.00000
+          3 |        2 |           2 |  -50.00000
+          4 |        2 |           3 |   50.00000
+          5 |        3 |           3 |  -12.00000
+          6 |        3 |           4 |   12.00000
+(6 rows)
 
--- See that the inventory has not been decremented.
-select * from account;
---  account_id | item_id | account_type | amount | description
--- ------------+---------+--------------+--------+-------------
---           1 |       1 | inventory    |      1 |
---           2 |       1 | committed    |      2 |
--- (2 rows)
+Picked 2 widgets into a shipping container
+INSERT 0 1
+INSERT 0 2
+ location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
+-------------+------------------+--------------+-----------------+--------+------------
+           6 | package          | 12345        | shipped         | THING1 |    0.00000
+           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
+           2 | receiving        | megacorp     | received        | THING1 |   50.00000
+           3 | stock            | A-B-C-D      | stocked         | THING1 |   38.00000
+           5 | package          | 12345        | commited        | THING1 |    2.00000
+           4 | stock            | A-B-C-D      | commited        | THING1 |   10.00000
+(6 rows)
 
--- Place another order 2 orders for 1 of item 1.
-insert into order_item (order_id, item_id) values
-(3, 1),
-(4, 1);
+ posting_id | entry_id | location_id |  quantity
+------------+----------+-------------+------------
+          1 |        1 |           1 | -100.00000
+          2 |        1 |           2 |  100.00000
+          3 |        2 |           2 |  -50.00000
+          4 |        2 |           3 |   50.00000
+          5 |        3 |           3 |  -12.00000
+          6 |        3 |           4 |   12.00000
+          7 |        4 |           4 |   -2.00000
+          8 |        4 |           5 |    2.00000
+(8 rows)
 
--- See that items for 3 have been and 4 have _not_ been commited since there
--- isn't enough to fullfil the order.
-select * from order_item;
---  order_item_id | item_id | order_id |  status
--- ---------------+---------+----------+-----------
---              1 |       1 |        1 | committed
---              2 |       1 |        1 | committed
---              3 |       1 |        2 | ordered
---              4 |       1 |        2 | ordered
---              6 |       1 |        4 | ordered
---              5 |       1 |        3 | committed
--- (6 rows)
+Shipped the widgets
+INSERT 0 1
+INSERT 0 2
+ location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
+-------------+------------------+--------------+-----------------+--------+------------
+           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
+           2 | receiving        | megacorp     | received        | THING1 |   50.00000
+           3 | stock            | A-B-C-D      | stocked         | THING1 |   38.00000
+           4 | stock            | A-B-C-D      | commited        | THING1 |   10.00000
+           6 | package          | 12345        | shipped         | THING1 |    2.00000
+           5 | package          | 12345        | commited        | THING1 |    0.00000
+(6 rows)
 
+ posting_id | entry_id | location_id |  quantity
+------------+----------+-------------+------------
+          1 |        1 |           1 | -100.00000
+          2 |        1 |           2 |  100.00000
+          3 |        2 |           2 |  -50.00000
+          4 |        2 |           3 |   50.00000
+          5 |        3 |           3 |  -12.00000
+          6 |        3 |           4 |   12.00000
+          7 |        4 |           4 |   -2.00000
+          8 |        4 |           5 |    2.00000
+          9 |        5 |           5 |   -2.00000
+         10 |        5 |           6 |    2.00000
+(10 rows)
 
+Commit another 12 of those widgets to fulfilling an order
+This posting is not balance and will error
+INSERT 0 1
+ERROR:  1 Journal Entry(ies) Not Balanced
+CONTEXT:  PL/pgSQL function function_check_zero_balance_journal_entry() line 12 at RAISE
+ location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
+-------------+------------------+--------------+-----------------+--------+------------
+           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
+           2 | receiving        | megacorp     | received        | THING1 |   50.00000
+           3 | stock            | A-B-C-D      | stocked         | THING1 |   38.00000
+           4 | stock            | A-B-C-D      | commited        | THING1 |   10.00000
+           6 | package          | 12345        | shipped         | THING1 |    2.00000
+           5 | package          | 12345        | commited        | THING1 |    0.00000
+(6 rows)
 
--- See that the inventory has not been decremented for 4.
-select * from account;
---  account_id | item_id | account_type | amount | description
--- ------------+---------+--------------+--------+-------------
---           1 |       1 | inventory    |      0 |
---           2 |       1 | committed    |      3 |
--- (2 rows)
+ posting_id | entry_id | location_id |  quantity
+------------+----------+-------------+------------
+          1 |        1 |           1 | -100.00000
+          2 |        1 |           2 |  100.00000
+          3 |        2 |           2 |  -50.00000
+          4 |        2 |           3 |   50.00000
+          5 |        3 |           3 |  -12.00000
+          6 |        3 |           4 |   12.00000
+          7 |        4 |           4 |   -2.00000
+          8 |        4 |           5 |    2.00000
+          9 |        5 |           5 |   -2.00000
+         10 |        5 |           6 |    2.00000
+(10 rows)
 ```
-
-
-Version 2
----------
-
-I'm trying to pare down tables and place functionality in seperate files 
-to make editing easier.
