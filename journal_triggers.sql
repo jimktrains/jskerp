@@ -45,3 +45,30 @@ referencing new table as new_postings
 for each statement
 execute procedure function_check_zero_balance_journal_entry();
 
+create or replace function function_check_all_same_sku ()
+returns trigger
+as $$
+declare
+  sku_count int;
+begin
+  select count(*) into sku_count
+  from new_postings
+  join account using (account_id)
+  group by entry_id
+  having count(distinct sku) > 1;
+
+  if sku_count is not null then;
+   raise exception 'All Postings must be for the same sku';
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trigger_check_all_same_sku
+after insert
+on posting
+referencing new table as new_postings
+for each statement
+execute procedure function_check_all_same_sku();
+
