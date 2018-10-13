@@ -1,5 +1,3 @@
-create schema inventory;
-
 SET search_path TO inventory, public;
 
 create table item (
@@ -31,10 +29,16 @@ create table location (
   location_id bigserial primary key,
   location_type_id text not null references location_type,
   location_lpn text not null,
+  unique (location_type_id, location_lpn)
+);
+
+create table account (
+  account_id bigserial primary key,
+  location_id bigint references location,
   account_type_id text not null references account_type,
   sku text not null references item,
   quantity decimal(10,5) not null,
-  unique (location_type_id, location_lpn, account_type_id, sku)
+  unique (location_id, account_type_id, sku)
 );
 
 create table journal (
@@ -44,6 +48,6 @@ create table journal (
 create table posting (
   posting_id bigserial primary key,
   entry_id bigint not null references journal,
-  location_id bigint not null references location,
+  account_id bigint not null references account,
   quantity decimal(10,5) not null
 );

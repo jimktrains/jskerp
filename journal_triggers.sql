@@ -2,10 +2,10 @@ create or replace function function_update_inventory_quantity ()
 returns trigger
 as $$
 begin
-  update location
-  set quantity = location.quantity + new_postings.quantity
+  update account
+  set quantity = account.quantity + new_postings.quantity
   from new_postings
-  where location.location_id = new_postings.location_id;
+  where account.account_id = new_postings.account_id;
 
   return new;
 end;

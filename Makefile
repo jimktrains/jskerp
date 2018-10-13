@@ -1,8 +1,13 @@
-test:
+all: install test clean
+
+install:
 	cat journal.sql \
 		  journal_triggers.sql \
-		  test.sql \
-	| psql pgerp
+      purchasing.sql \
+		| psql pgerp
+
+test:
+	cat test.sql | psql pgerp
 
 clean:
 	dropdb pgerp
