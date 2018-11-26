@@ -1,7 +1,10 @@
 # pgerp
 An proof-of-concept ERP system using PostgreSQL.  Starting as a test of
-transition tables, as such there is a consicous absence of additional indices
-and foreign keys.
+transition tables, as such there is a consicous absence of additional indices.
+
+This is a work in progress. Currently a system similar to double-entry
+accounting is used to keep track of the flow of inventory. I am currently
+working on average-cost assignment.
 
 One of the premises is that "reality wins". An example would be that, in
 theory, you cannot have a `stock` location that has fewer than 0 items in it.
