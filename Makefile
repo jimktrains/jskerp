@@ -1,14 +1,17 @@
-all: install test clean
+all: clean install test
+
+PSQL_OPTS=-v ON_ERROR_STOP=1
+DB=pgerp
 
 install:
-	cat journal.sql \
-		  journal_triggers.sql \
-      purchasing.sql \
-		| psql pgerp
+	psql ${PSQL_OPTS} -f journal.sql ${DB}
+	psql ${PSQL_OPTS} -f journal_triggers.sql ${DB}
+	psql ${PSQL_OPTS} -f purchasing.sql ${DB}
+	psql ${PSQL_OPTS} -f average_costing.sql ${DB}
 
 test:
-	cat test.sql | psql pgerp
+	psql ${PSQL_OPTS} -f test.sql ${DB}
 
 clean:
-	dropdb pgerp
-	createdb pgerp
+	dropdb --if-exists ${DB}
+	createdb ${DB}
