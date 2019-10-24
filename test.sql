@@ -23,80 +23,91 @@ values
 (6          , 4           , 'shipped'       , 'THING1' , 0)
 ;
 
+insert into account_average_cost
+(account_id)
+values
+(1),
+(2),
+(3),
+(4),
+(5),
+(6)
+;
+
 select * from location;
+select * from account;
 select * from posting;
+select * from account_average_cost;
 
 \echo Received 100 Widgets
 
-insert into journal (entry_id) values (1);
-insert into posting (entry_id, account_id, quantity) values
-(1, 1, -100),
-(1, 2,  100);
+insert into journal default values returning entry_id \gset
+insert into posting (entry_id, account_id, quantity, unit_cost) values
+(:entry_id, 1, -100, 10),
+(:entry_id, 2,  100, null);
 
-select * from location;
-select * from posting;
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);
+
+insert into journal default values returning entry_id \gset
+insert into posting (entry_id, account_id, quantity, unit_cost) values
+(:entry_id, 1, -100, 15),
+(:entry_id, 2,  100, null);
+
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);
 
 \echo Stocked 50 of those widgets
-insert into journal (entry_id) values (2);
+insert into journal default values returning entry_id \gset
 insert into posting (entry_id, account_id, quantity) values
-(2, 2, -50),
-(2, 3,  50);
+(:entry_id, 2, -50),
+(:entry_id, 3,  50);
 
-select * from location;
-select * from posting;
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);
+
+\echo Receive 100 more
+insert into journal default values returning entry_id \gset
+insert into posting (entry_id, account_id, quantity, unit_cost) values
+(:entry_id, 1, -100, 13),
+(:entry_id, 2,  100, null);
+
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);
+
+\echo Stocked another 50 of those widgets
+insert into journal default values returning entry_id \gset
+insert into posting (entry_id, account_id, quantity) values
+(:entry_id, 2, -50),
+(:entry_id, 3,  50);
+
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);
 
 \echo Commited 12 of those widgets to fulfilling an order
-insert into journal (entry_id) values (3);
+insert into journal default values returning entry_id \gset
 insert into posting (entry_id, account_id, quantity) values
-(3, 3, -12),
-(3, 4,  12);
+(:entry_id, 3, -12),
+(:entry_id, 4,  12);
 
-select * from location;
-select * from posting;
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);
 
 \echo Picked 2 widgets into a shipping container
-insert into journal (entry_id) values (4);
+insert into journal default values returning entry_id \gset
 insert into posting (entry_id, account_id, quantity) values
-(4, 4, -2),
-(4, 5,  2);
+(:entry_id, 4, -2),
+(:entry_id, 5,  2);
 
-select * from location;
-select * from posting;
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);
 
 \echo Shipped the widgets
-insert into journal (entry_id) values (5);
+insert into journal default values returning entry_id \gset
 insert into posting (entry_id, account_id, quantity) values
-(5, 5, -2),
-(5, 6,  2);
+(:entry_id, 5, -2),
+(:entry_id, 6,  2);
 
-select * from location;
-select * from posting;
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);
 
 \echo Commit another 12 of those widgets to fulfilling an order
 \echo This posting is not balance and will error
-insert into journal (entry_id) values (6);
+insert into journal default values returning entry_id \gset
 insert into posting (entry_id, account_id, quantity) values
-(6, 3, -12),
-(6, 4,  10);
+(:entry_id, 3, -12),
+(:entry_id, 4,  10);
 
-
-insert into purchase_order_item (entry_id, unit_cost)
-values (1, 1);
-
-select * from account;
-select * from purchase_order_item;
-
-\echo Received 20 Widgets
-
-insert into journal (entry_id) values (7);
-insert into posting (entry_id, account_id, quantity) values
-(7, 1, -20),
-(7, 5, 20);
-
-select * from location;
-select * from posting;
-
-insert into purchase_order_item (entry_id, unit_cost)
-values (7, 5);
-
-select * from purchase_order_item;
+select account_id, quantity, average_cost  from account_average_cost join account using (account_id);

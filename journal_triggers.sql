@@ -57,7 +57,7 @@ begin
   group by entry_id
   having count(distinct sku) > 1;
 
-  if sku_count is not null then;
+  if sku_count is not null then
    raise exception 'All Postings must be for the same sku';
   end if;
 
@@ -72,3 +72,31 @@ referencing new table as new_postings
 for each statement
 execute procedure function_check_all_same_sku();
 
+create or replace function function_check_new_entity_is_new ()
+returns trigger
+as $$
+declare
+  table_posting_count int;
+  new_posting_count int;
+begin
+  select count(*) into table_posting_count
+  from posting
+  where entry_id in (select distinct entry_id from new_postings);
+
+  select count(*) into new_posting_count
+  from new_postings;
+
+  if table_posting_count <> new_posting_count then
+   raise exception 'All postings must be for a new entry % <> %', table_posting_count, new_posting_count ;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trigger_check_new_entity_is_new
+after insert
+on posting
+referencing new table as new_postings
+for each statement
+execute procedure function_check_new_entity_is_new();

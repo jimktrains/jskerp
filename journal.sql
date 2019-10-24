@@ -49,5 +49,6 @@ create table posting (
   posting_id bigserial primary key,
   entry_id bigint not null references journal,
   account_id bigint not null references account,
-  quantity decimal(10,5) not null
+  quantity decimal(10,5) not null,
+  unit_cost decimal(10,4)
 );
