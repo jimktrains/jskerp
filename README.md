@@ -19,7 +19,9 @@ Running `make clean && make` will drop and create the db "pgerp" (`make clean`)
 and then load the schema and triggers and run a quick sample/test (`make`).
 
 ```sql
-CREATE SCHEMA
+dropdb --if-exists pgerp
+createdb pgerp
+psql -v ON_ERROR_STOP=1 -f journal.sql pgerp
 SET
 CREATE TABLE
 CREATE TABLE
@@ -29,168 +31,231 @@ INSERT 0 4
 CREATE TABLE
 CREATE TABLE
 CREATE TABLE
+CREATE TABLE
+psql -v ON_ERROR_STOP=1 -f journal_triggers.sql pgerp
 CREATE FUNCTION
 CREATE TRIGGER
 CREATE FUNCTION
 CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+psql -v ON_ERROR_STOP=1 -f purchasing.sql pgerp
 SET
-INSERT 0 1
-INSERT 0 6
- location_id | location_type_id | location_lpn | account_type_id |  sku   | quantity
--------------+------------------+--------------+-----------------+--------+----------
-           1 | supplier         | megacorp     | supplied        | THING1 |  0.00000
-           2 | receiving        | megacorp     | received        | THING1 |  0.00000
-           3 | stock            | A-B-C-D      | stocked         | THING1 |  0.00000
-           4 | stock            | A-B-C-D      | commited        | THING1 |  0.00000
-           5 | package          | 12345        | commited        | THING1 |  0.00000
-           6 | package          | 12345        | shipped         | THING1 |  0.00000
-(6 rows)
+CREATE TABLE
+psql -v ON_ERROR_STOP=1 -f average_costing.sql pgerp
+SET
+CREATE TABLE
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+psql -v ON_ERROR_STOP=1 -f test.sql pgerp
+SET
+INSERT 0 2
+INSERT 0 5
+INSERT 0 12
+ location_id | location_type_id | location_lpn  
+-------------+------------------+---------------
+           1 | supplier         | megacorp
+           2 | receiving        | Shipper.54321
+           3 | stock            | A-B-C-D
+           4 | package          | Shipper.12345
+           5 | receiving        | Shipper.98765
+(5 rows)
 
- posting_id | entry_id | location_id | quantity
-------------+----------+-------------+----------
+ account_id | location_id | account_type_id |   sku   | quantity 
+------------+-------------+-----------------+---------+----------
+          1 |           1 | supplied        | THING1  |  0.00000
+          2 |           2 | received        | THING1  |  0.00000
+          3 |           3 | stocked         | THING1  |  0.00000
+          4 |           3 | commited        | THING1  |  0.00000
+          5 |           4 | commited        | THING1  |  0.00000
+          6 |           4 | shipped         | THING1  |  0.00000
+          7 |           1 | supplied        | WIDGET2 |  0.00000
+          8 |           2 | received        | WIDGET2 |  0.00000
+          9 |           3 | stocked         | WIDGET2 |  0.00000
+         10 |           3 | commited        | WIDGET2 |  0.00000
+         11 |           4 | commited        | WIDGET2 |  0.00000
+         12 |           4 | shipped         | WIDGET2 |  0.00000
+(12 rows)
+
+ posting_id | entry_id | account_id | quantity | unit_cost | sku 
+------------+----------+------------+----------+-----------+-----
 (0 rows)
 
-Received 100 Widgets
+ account_id | average_cost 
+------------+--------------
+          1 |       0.0000
+          2 |       0.0000
+          3 |       0.0000
+          4 |       0.0000
+          5 |       0.0000
+          6 |       0.0000
+          7 |       0.0000
+          8 |       0.0000
+          9 |       0.0000
+         10 |       0.0000
+         11 |       0.0000
+         12 |       0.0000
+(12 rows)
+
+Received 100 THING1 @ $10/unit and 25 WIDGET2 @ $10/unit
+INSERT 0 1
+INSERT 0 4
+ account_id |  quantity  | average_cost 
+------------+------------+--------------
+          1 | -100.00000 |       0.0000
+          2 |  100.00000 |      10.0000
+          3 |    0.00000 |       0.0000
+          4 |    0.00000 |       0.0000
+          5 |    0.00000 |       0.0000
+          6 |    0.00000 |       0.0000
+          7 |  -25.00000 |       0.0000
+          8 |   25.00000 |      10.0000
+          9 |    0.00000 |       0.0000
+         10 |    0.00000 |       0.0000
+         11 |    0.00000 |       0.0000
+         12 |    0.00000 |       0.0000
+(12 rows)
+
+Received 100 THING1 @ $15/unit
 INSERT 0 1
 INSERT 0 2
- location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
--------------+------------------+--------------+-----------------+--------+------------
-           3 | stock            | A-B-C-D      | stocked         | THING1 |    0.00000
-           4 | stock            | A-B-C-D      | commited        | THING1 |    0.00000
-           5 | package          | 12345        | commited        | THING1 |    0.00000
-           6 | package          | 12345        | shipped         | THING1 |    0.00000
-           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
-           2 | receiving        | megacorp     | received        | THING1 |  100.00000
-(6 rows)
+ account_id |  quantity  | average_cost 
+------------+------------+--------------
+          1 | -200.00000 |       0.0000
+          2 |  200.00000 |      12.5000
+          3 |    0.00000 |       0.0000
+          4 |    0.00000 |       0.0000
+          5 |    0.00000 |       0.0000
+          6 |    0.00000 |       0.0000
+          7 |  -25.00000 |       0.0000
+          8 |   25.00000 |      10.0000
+          9 |    0.00000 |       0.0000
+         10 |    0.00000 |       0.0000
+         11 |    0.00000 |       0.0000
+         12 |    0.00000 |       0.0000
+(12 rows)
 
- posting_id | entry_id | location_id |  quantity
-------------+----------+-------------+------------
-          1 |        1 |           1 | -100.00000
-          2 |        1 |           2 |  100.00000
-(2 rows)
-
-Stocked 50 of those widgets
+Stocked 50 THING1s
 INSERT 0 1
 INSERT 0 2
- location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
--------------+------------------+--------------+-----------------+--------+------------
-           4 | stock            | A-B-C-D      | commited        | THING1 |    0.00000
-           5 | package          | 12345        | commited        | THING1 |    0.00000
-           6 | package          | 12345        | shipped         | THING1 |    0.00000
-           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
-           3 | stock            | A-B-C-D      | stocked         | THING1 |   50.00000
-           2 | receiving        | megacorp     | received        | THING1 |   50.00000
-(6 rows)
+ account_id |  quantity  | average_cost 
+------------+------------+--------------
+          1 | -200.00000 |       0.0000
+          2 |  150.00000 |      12.5000
+          3 |   50.00000 |      12.5000
+          4 |    0.00000 |       0.0000
+          5 |    0.00000 |       0.0000
+          6 |    0.00000 |       0.0000
+          7 |  -25.00000 |       0.0000
+          8 |   25.00000 |      10.0000
+          9 |    0.00000 |       0.0000
+         10 |    0.00000 |       0.0000
+         11 |    0.00000 |       0.0000
+         12 |    0.00000 |       0.0000
+(12 rows)
 
- posting_id | entry_id | location_id |  quantity
-------------+----------+-------------+------------
-          1 |        1 |           1 | -100.00000
-          2 |        1 |           2 |  100.00000
-          3 |        2 |           2 |  -50.00000
-          4 |        2 |           3 |   50.00000
-(4 rows)
-
-Commited 12 of those widgets to fulfilling an order
+Receive 100 THING1 @ $13/unit
 INSERT 0 1
 INSERT 0 2
- location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
--------------+------------------+--------------+-----------------+--------+------------
-           5 | package          | 12345        | commited        | THING1 |    0.00000
-           6 | package          | 12345        | shipped         | THING1 |    0.00000
-           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
-           2 | receiving        | megacorp     | received        | THING1 |   50.00000
-           4 | stock            | A-B-C-D      | commited        | THING1 |   12.00000
-           3 | stock            | A-B-C-D      | stocked         | THING1 |   38.00000
-(6 rows)
+ account_id |  quantity  | average_cost 
+------------+------------+--------------
+          1 | -300.00000 |       0.0000
+          2 |  250.00000 |      12.7000
+          3 |   50.00000 |      12.5000
+          4 |    0.00000 |       0.0000
+          5 |    0.00000 |       0.0000
+          6 |    0.00000 |       0.0000
+          7 |  -25.00000 |       0.0000
+          8 |   25.00000 |      10.0000
+          9 |    0.00000 |       0.0000
+         10 |    0.00000 |       0.0000
+         11 |    0.00000 |       0.0000
+         12 |    0.00000 |       0.0000
+(12 rows)
 
- posting_id | entry_id | location_id |  quantity
-------------+----------+-------------+------------
-          1 |        1 |           1 | -100.00000
-          2 |        1 |           2 |  100.00000
-          3 |        2 |           2 |  -50.00000
-          4 |        2 |           3 |   50.00000
-          5 |        3 |           3 |  -12.00000
-          6 |        3 |           4 |   12.00000
-(6 rows)
-
-Picked 2 widgets into a shipping container
+Stocked another 50 THING1s
 INSERT 0 1
 INSERT 0 2
- location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
--------------+------------------+--------------+-----------------+--------+------------
-           6 | package          | 12345        | shipped         | THING1 |    0.00000
-           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
-           2 | receiving        | megacorp     | received        | THING1 |   50.00000
-           3 | stock            | A-B-C-D      | stocked         | THING1 |   38.00000
-           5 | package          | 12345        | commited        | THING1 |    2.00000
-           4 | stock            | A-B-C-D      | commited        | THING1 |   10.00000
-(6 rows)
+ account_id |  quantity  | average_cost 
+------------+------------+--------------
+          1 | -300.00000 |       0.0000
+          2 |  200.00000 |      12.7000
+          3 |  100.00000 |      12.6000
+          4 |    0.00000 |       0.0000
+          5 |    0.00000 |       0.0000
+          6 |    0.00000 |       0.0000
+          7 |  -25.00000 |       0.0000
+          8 |   25.00000 |      10.0000
+          9 |    0.00000 |       0.0000
+         10 |    0.00000 |       0.0000
+         11 |    0.00000 |       0.0000
+         12 |    0.00000 |       0.0000
+(12 rows)
 
- posting_id | entry_id | location_id |  quantity
-------------+----------+-------------+------------
-          1 |        1 |           1 | -100.00000
-          2 |        1 |           2 |  100.00000
-          3 |        2 |           2 |  -50.00000
-          4 |        2 |           3 |   50.00000
-          5 |        3 |           3 |  -12.00000
-          6 |        3 |           4 |   12.00000
-          7 |        4 |           4 |   -2.00000
-          8 |        4 |           5 |    2.00000
-(8 rows)
-
-Shipped the widgets
+Commited 12 THING1 to fulfilling an order
 INSERT 0 1
 INSERT 0 2
- location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
--------------+------------------+--------------+-----------------+--------+------------
-           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
-           2 | receiving        | megacorp     | received        | THING1 |   50.00000
-           3 | stock            | A-B-C-D      | stocked         | THING1 |   38.00000
-           4 | stock            | A-B-C-D      | commited        | THING1 |   10.00000
-           6 | package          | 12345        | shipped         | THING1 |    2.00000
-           5 | package          | 12345        | commited        | THING1 |    0.00000
-(6 rows)
+ account_id |  quantity  | average_cost 
+------------+------------+--------------
+          1 | -300.00000 |       0.0000
+          2 |  200.00000 |      12.7000
+          3 |   88.00000 |      12.6000
+          4 |   12.00000 |      12.6000
+          5 |    0.00000 |       0.0000
+          6 |    0.00000 |       0.0000
+          7 |  -25.00000 |       0.0000
+          8 |   25.00000 |      10.0000
+          9 |    0.00000 |       0.0000
+         10 |    0.00000 |       0.0000
+         11 |    0.00000 |       0.0000
+         12 |    0.00000 |       0.0000
+(12 rows)
 
- posting_id | entry_id | location_id |  quantity
-------------+----------+-------------+------------
-          1 |        1 |           1 | -100.00000
-          2 |        1 |           2 |  100.00000
-          3 |        2 |           2 |  -50.00000
-          4 |        2 |           3 |   50.00000
-          5 |        3 |           3 |  -12.00000
-          6 |        3 |           4 |   12.00000
-          7 |        4 |           4 |   -2.00000
-          8 |        4 |           5 |    2.00000
-          9 |        5 |           5 |   -2.00000
-         10 |        5 |           6 |    2.00000
-(10 rows)
+Picked 2 THING1 into a shipping container
+INSERT 0 1
+INSERT 0 2
+ account_id |  quantity  | average_cost 
+------------+------------+--------------
+          1 | -300.00000 |       0.0000
+          2 |  200.00000 |      12.7000
+          3 |   88.00000 |      12.6000
+          4 |   10.00000 |      12.6000
+          5 |    2.00000 |      12.6000
+          6 |    0.00000 |       0.0000
+          7 |  -25.00000 |       0.0000
+          8 |   25.00000 |      10.0000
+          9 |    0.00000 |       0.0000
+         10 |    0.00000 |       0.0000
+         11 |    0.00000 |       0.0000
+         12 |    0.00000 |       0.0000
+(12 rows)
 
-Commit another 12 of those widgets to fulfilling an order
+Shipped those 2 widgets
+INSERT 0 1
+INSERT 0 2
+ account_id |  quantity  | average_cost 
+------------+------------+--------------
+          1 | -300.00000 |       0.0000
+          2 |  200.00000 |      12.7000
+          3 |   88.00000 |      12.6000
+          4 |   10.00000 |      12.6000
+          5 |    0.00000 |      12.6000
+          6 |    2.00000 |      12.6000
+          7 |  -25.00000 |       0.0000
+          8 |   25.00000 |      10.0000
+          9 |    0.00000 |       0.0000
+         10 |    0.00000 |       0.0000
+         11 |    0.00000 |       0.0000
+         12 |    0.00000 |       0.0000
+(12 rows)
+
+Commit another 12 THING1 to fulfilling another order
 This posting is not balance and will error
 INSERT 0 1
-ERROR:  1 Journal Entry(ies) Not Balanced
-CONTEXT:  PL/pgSQL function function_check_zero_balance_journal_entry() line 12 at RAISE
- location_id | location_type_id | location_lpn | account_type_id |  sku   |  quantity
--------------+------------------+--------------+-----------------+--------+------------
-           1 | supplier         | megacorp     | supplied        | THING1 | -100.00000
-           2 | receiving        | megacorp     | received        | THING1 |   50.00000
-           3 | stock            | A-B-C-D      | stocked         | THING1 |   38.00000
-           4 | stock            | A-B-C-D      | commited        | THING1 |   10.00000
-           6 | package          | 12345        | shipped         | THING1 |    2.00000
-           5 | package          | 12345        | commited        | THING1 |    0.00000
-(6 rows)
-
- posting_id | entry_id | location_id |  quantity
-------------+----------+-------------+------------
-          1 |        1 |           1 | -100.00000
-          2 |        1 |           2 |  100.00000
-          3 |        2 |           2 |  -50.00000
-          4 |        2 |           3 |   50.00000
-          5 |        3 |           3 |  -12.00000
-          6 |        3 |           4 |   12.00000
-          7 |        4 |           4 |   -2.00000
-          8 |        4 |           5 |    2.00000
-          9 |        5 |           5 |   -2.00000
-         10 |        5 |           6 |    2.00000
-(10 rows)
+Makefile:13: recipe for target 'test' failed
+psql:test.sql:109: ERROR:  Journal Entry(ies) Not Balanced
+CONTEXT:  PL/pgSQL function function_check_zero_balance_journal_entry() line 9 at RAISE
+make: *** [test] Error 3
 ```
