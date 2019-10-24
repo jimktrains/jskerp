@@ -38,7 +38,8 @@ create table account (
   account_type_id text not null references account_type,
   sku text not null references item,
   quantity decimal(10,5) not null,
-  unique (location_id, account_type_id, sku)
+  unique (location_id, account_type_id, sku),
+  unique (account_id, sku)
 );
 
 create table journal (
@@ -50,5 +51,7 @@ create table posting (
   entry_id bigint not null references journal,
   account_id bigint not null references account,
   quantity decimal(10,5) not null,
-  unit_cost decimal(10,4)
+  unit_cost decimal(10,4),
+  sku text not null references item,
+  foreign key (account_id, sku) references account(account_id, sku)
 );
