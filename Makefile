@@ -8,7 +8,7 @@ install:
 	psql ${PSQL_OPTS} -f journal_triggers.sql ${DB}
 	psql ${PSQL_OPTS} -f purchasing.sql ${DB}
 	psql ${PSQL_OPTS} -f average_costing.sql ${DB}
-
+	psql ${PSQL_OPTS} -f fifo_costing.sql ${DB}
 test:
 	psql ${PSQL_OPTS} -f test.sql ${DB}
 

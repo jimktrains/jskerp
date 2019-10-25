@@ -1,0 +1,214 @@
+SET search_path TO inventory, public;
+
+-- In theory we could have a transaction (say transaction1) with
+--   account1x10 @ $1 -> account3
+--   account2x15 @ $2 -> account3
+-- and then here in account3, we'd need to have
+--   account3, transaction1, 10, $1
+--   account3, transaction1, 15, $2
+create table account_fifo_cost (
+  account_fifo_cost bigserial primary key,
+  account_id bigint references account(account_id) not null,
+  entry_id bigint references journal(entry_id) not null,
+  quantity numeric(10,4) not null check(quantity >= 0),
+  unit_cost numeric(10,4) not null
+);
+
+
+
+create or replace function function_update_fifo_cost ()
+returns trigger
+as $$
+begin
+  insert into account_fifo_cost
+  (account_id, entry_id, quantity,  unit_cost)
+  select account_id, entry_id, -quantity,  unit_cost
+  from new_postings
+  where quantity < 0 and unit_cost is not null;
+
+  with recursive
+  account_debit_quantity_needed as (
+    select account_id, 
+           sku,
+           sum(-quantity) as quantity_needed
+    from new_postings
+    where quantity < 0
+    group by account_id, sku
+  ),
+  debit_source as (
+    select sku,
+           account_id as debit_account_id,
+           entry_id as debit_entry_id,
+           quantity as debit_quantity,
+           unit_cost as debit_unit_cost,
+           row_number() over sku_w as m
+    from (
+      select account_id,
+             entry_id,
+             quantity,
+             unit_cost,
+             sum(-quantity) over sku_w as debit_total_quantity,
+             coalesce(sum(-quantity) over sku_m1_w, 0) as debit_prev_total_quantity
+      from account_fifo_cost
+      window sku_w as (partition by account_id order by account_id asc, entry_id asc, unit_cost asc rows between unbounded preceding and current row),
+             sku_m1_w as (partition by account_id order by account_id asc, entry_id asc, unit_cost asc rows between unbounded preceding and 1 preceding)
+    ) x
+    join account_debit_quantity_needed using (account_id)
+    where quantity_needed > debit_total_quantity 
+       or quantity_needed between debit_prev_total_quantity and debit_total_quantity
+    window sku_w as (partition by account_id order by account_id asc, entry_id asc, unit_cost asc rows between unbounded preceding and current row)
+    order by sku, account_id, entry_id
+
+  ),
+  credit_sink as (
+    select account_id as credit_account_id,
+           entry_id as credit_entry_id,
+           sku,
+           quantity as credit_quantity,
+           row_number() over sku_w as n
+    from new_postings
+    where new_postings.quantity > 0
+    window sku_w as (partition by sku order by sku, account_id, entry_id asc rows between unbounded preceding and current row)
+    order by sku, account_id, entry_id
+  ),
+  movement as (
+
+    select sku,
+           credit_account_id,
+           credit_entry_id,
+           credit_quantity,
+           n,
+           debit_account_id,
+           debit_entry_id,
+           debit_quantity,
+           debit_unit_cost,
+           m,
+           quantity_moved,
+           debit_quantity_remaining,
+           credit_quantity_remaining,
+           n + (credit_quantity_remaining = 0)::integer as next_n,
+           m + (debit_quantity_remaining = 0)::integer as next_m
+    from (
+      select *,
+             debit_quantity - quantity_moved as debit_quantity_remaining,
+             credit_quantity - quantity_moved as credit_quantity_remaining
+      from (
+        select sku,
+               credit_account_id,
+               credit_entry_id,
+               credit_quantity,
+               n,
+               debit_account_id,
+               debit_entry_id,
+               debit_quantity,
+               debit_unit_cost,
+               m,
+               least(debit_quantity, credit_quantity) as quantity_moved
+        from debit_source
+        join credit_sink using (sku)
+        where n = 1 and m = 1
+      ) y
+    ) x
+
+    union all
+
+    select sku,
+           credit_account_id,
+           credit_entry_id,
+           credit_quantity,
+           n,
+           debit_account_id,
+           debit_entry_id,
+           debit_quantity,
+           debit_unit_cost,
+           m,
+           -- this cast scares me because it means I've screwed something up
+           -- somewhere.
+           quantity_moved::numeric(10,4),
+           debit_quantity_remaining,
+           credit_quantity_remaining,
+           n + (credit_quantity_remaining = 0)::integer as next_n,
+           m + (debit_quantity_remaining = 0)::integer as next_m
+    from (
+      select sku,
+             credit_account_id,
+             credit_entry_id,
+             credit_quantity,
+             n,
+             debit_account_id,
+             debit_entry_id,
+             debit_quantity,
+             debit_unit_cost,
+             m,
+             quantity_moved,
+             debit_quantity_remaining - quantity_moved as debit_quantity_remaining,
+             credit_quantity_remaining - quantity_moved as credit_quantity_remaining
+      from (
+        select *,
+               least(debit_quantity_remaining, credit_quantity_remaining) as quantity_moved             
+        from (
+          select sku,
+                 credit_sink.credit_account_id,
+                 credit_sink.credit_entry_id,
+                 credit_sink.credit_quantity,
+                 credit_sink.n,
+                 debit_source.debit_account_id,
+                 debit_source.debit_entry_id,
+                 debit_source.debit_quantity,
+                 debit_source.debit_unit_cost,
+                 debit_source.m,
+
+                 coalesce(nullif(debit_quantity_remaining, 0::numeric(10,4)), debit_source.debit_quantity) as debit_quantity_remaining,
+                 coalesce(nullif(credit_quantity_remaining, 0::numeric(10,4)), credit_sink.credit_quantity) as credit_quantity_remaining
+          from movement
+          join debit_source using (sku)
+          join credit_sink using (sku)
+          where movement.next_n = credit_sink.n 
+            and movement.next_m = debit_source.m
+        ) z
+      ) y
+    ) x
+  ),
+  total_debited as (
+    select debit_account_id as account_id,
+           debit_entry_id as entry_id,
+           sum(quantity_moved) as quantity_moved,
+           debit_unit_cost as unit_cost
+    from movement
+    group by debit_account_id, debit_entry_id, debit_unit_cost
+  ),
+  total_credited as (
+    select credit_account_id as account_id,
+           credit_entry_id as entry_id,
+           sum(quantity_moved) as quantity_moved,
+           debit_unit_cost as unit_cost
+    from movement
+    group by credit_account_id, credit_entry_id, debit_unit_cost
+  ),
+  update_debits_account_fifo_cost as (
+    update account_fifo_cost
+    set quantity = quantity - quantity_moved
+    from total_debited
+    where total_debited.account_id = account_fifo_cost.account_id
+      and total_debited.entry_id = account_fifo_cost.entry_id
+      and total_debited.unit_cost = account_fifo_cost.unit_cost 
+  )
+  insert into account_fifo_cost
+  (account_id, entry_id, quantity, unit_cost)
+  select account_id, entry_id, quantity_moved, unit_cost
+  from total_credited;
+
+  delete from account_fifo_cost
+  where quantity = 0;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trigger_update_fifo_cost
+after insert
+on posting
+referencing new table as new_postings
+for each statement
+execute procedure function_update_fifo_cost();
+

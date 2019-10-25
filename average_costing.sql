@@ -5,6 +5,26 @@ create table account_average_cost (
   average_cost numeric(10,4) not null default 0
 );
 
+create or replace function function_new_average_cost_on_new_account ()
+returns trigger
+as $$
+begin
+  insert into account_average_cost
+  (account_id)
+  select account_id
+  from new_accounts;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trigger_new_average_cost_on_new_account
+after insert
+on account
+referencing new table as new_accounts
+for each statement
+execute procedure function_new_average_cost_on_new_account();
+
 create or replace function function_update_average_cost ()
 returns trigger
 as $$
