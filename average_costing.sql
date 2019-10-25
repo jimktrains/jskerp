@@ -1,5 +1,10 @@
 SET search_path TO inventory, public;
 
+-- Average costing is computed whenever inventory is added to an
+-- account. The current average cost of the credit and debit account
+-- are averaged weighted by the current inventory in the credit account
+-- and the quantity being moved, respectivly.
+
 create table account_average_cost (
   account_id bigint primary key references account(account_id),
   average_cost numeric(10,4) not null default 0
@@ -29,23 +34,29 @@ create or replace function function_update_average_cost ()
 returns trigger
 as $$
 begin
+  -- Compute the average cost of all items of a sku being debited, using
+  -- any unit_cost set on the debit.
   with new_postings_debit_avg_unit_cost AS (
     select entry_id,
+           sku,
            sum(abs(quantity) * coalesce(unit_cost, average_cost))/sum(abs(quantity)) as posting_avg_unit_cost
     from new_postings
     join account_average_cost using (account_id)
     where quantity < 0
-    group by entry_id
+    group by entry_id, sku
   ),
+  -- Compute the new average costs for inventory going into each of the credit
+  -- accounts.
   account_credit_avg_unit_cost AS (
     select account_id,
            sum(quantity) as credit_quantity,
            sum(quantity * posting_avg_unit_cost) / sum(quantity) as credit_avg_cost
     from new_postings
-    join new_postings_debit_avg_unit_cost using (entry_id)
+    join new_postings_debit_avg_unit_cost using (entry_id, sku)
     where quantity > 0
     group by account_id
   ),
+  -- Compute the new average cost of the credit account.
   account_credit_avg_cost AS (
     select account_id,
            ((credit_quantity * credit_avg_cost) + (quantity * average_cost))/(credit_quantity+quantity) as new_account_avg_cost

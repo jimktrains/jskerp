@@ -1,11 +1,16 @@
 SET search_path TO inventory, public;
 
+-- FIFO Costing is done by keeping track of the cost and quantity of
+-- items as they are moved around. When moved, the oldest cost for that
+-- account is used and decremented.
+
 -- In theory we could have a transaction (say transaction1) with
 --   account1x10 @ $1 -> account3
 --   account2x15 @ $2 -> account3
 -- and then here in account3, we'd need to have
 --   account3, transaction1, 10, $1
 --   account3, transaction1, 15, $2
+-- so, we shouldn't combine by price or entry.
 create table account_fifo_cost (
   account_fifo_cost bigserial primary key,
   account_id bigint references account(account_id) not null,
@@ -14,12 +19,11 @@ create table account_fifo_cost (
   unit_cost numeric(10,4) not null
 );
 
-
-
 create or replace function function_update_fifo_cost ()
 returns trigger
 as $$
 begin
+  -- Add in any new costs from the debits.
   insert into account_fifo_cost
   (account_id, entry_id, quantity,  unit_cost)
   select account_id, entry_id, -quantity,  unit_cost
@@ -27,6 +31,7 @@ begin
   where quantity < 0 and unit_cost is not null;
 
   with recursive
+  -- Computes how many items from each account are going to move.
   account_debit_quantity_needed as (
     select account_id, 
            sku,
@@ -35,6 +40,8 @@ begin
     where quantity < 0
     group by account_id, sku
   ),
+  -- Orders the debit source account costs by entry so that the oldest
+  -- is used. Adds in sequential row numbers by sku.
   debit_source as (
     select sku,
            account_id as debit_account_id,
@@ -60,6 +67,8 @@ begin
     order by sku, account_id, entry_id
 
   ),
+  -- Orders the credit accounts (arbitraily). Adds in a sequential row
+  -- number by sku.
   credit_sink as (
     select account_id as credit_account_id,
            entry_id as credit_entry_id,
@@ -71,8 +80,17 @@ begin
     window sku_w as (partition by sku order by sku, account_id, entry_id asc rows between unbounded preceding and current row)
     order by sku, account_id, entry_id
   ),
-  movement as (
+  -- Generates a movement table so that we know how many of each account
+  -- at a cost moves into a credit account.
 
+  -- 1. Using the sequential row numbers above, starting with the first
+  --   credit and debit account for each sku.
+  -- 2. Figure out how many credits and debits are consumed in the move and
+  --   how many remain.
+  -- 3. If there are items remaining in an account, don't move to the next
+  --   account, otherwise move to the next account.
+  -- 4. Get the next appropriate accounts and go to 2 or complete
+  movement as (
     select sku,
            credit_account_id,
            credit_entry_id,
@@ -169,6 +187,7 @@ begin
       ) y
     ) x
   ),
+  -- Combines all movements by debit account cost to make the update easier.
   total_debited as (
     select debit_account_id as account_id,
            debit_entry_id as entry_id,
@@ -177,6 +196,8 @@ begin
     from movement
     group by debit_account_id, debit_entry_id, debit_unit_cost
   ),
+  -- Combines all the movmenets by credit account and cost to make the
+  -- insert easier.
   total_credited as (
     select credit_account_id as account_id,
            credit_entry_id as entry_id,
@@ -185,6 +206,7 @@ begin
     from movement
     group by credit_account_id, credit_entry_id, debit_unit_cost
   ),
+  -- Update the debits.
   update_debits_account_fifo_cost as (
     update account_fifo_cost
     set quantity = quantity - quantity_moved
@@ -193,11 +215,13 @@ begin
       and total_debited.entry_id = account_fifo_cost.entry_id
       and total_debited.unit_cost = account_fifo_cost.unit_cost 
   )
+  -- Insert the credits.
   insert into account_fifo_cost
   (account_id, entry_id, quantity, unit_cost)
   select account_id, entry_id, quantity_moved, unit_cost
   from total_credited;
 
+  -- Clean up the debit account costs that have no quantity in them.
   delete from account_fifo_cost
   where quantity = 0;
 
