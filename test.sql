@@ -1,6 +1,34 @@
 set search_path TO inventory, public;
 
-insert into item (sku) values ('THING1'), ('WIDGET2');
+insert into account_type (account_type_id) values
+('supplied'),
+('received'),
+('stocked'),
+('commited'),
+('shipped')
+;
+insert into location_type (location_type_id) values
+('supplier'),
+('receiving'),
+('stock'),
+('picking'),
+('assembly'),
+('package')
+;
+
+insert into unit_of_measure (name, incremental) values
+('item', 1)
+returning unit_of_measure_id as item_uom
+\gset
+
+insert into unit_of_measure (name, incremental) values
+('yards', 0.25)
+returning unit_of_measure_id as yards_uom
+\gset
+
+insert into item (sku, unit_of_measure_id) values 
+('THING1', item_uom),
+('WIDGET2', yards_uom);
 
 insert into location 
 (location_id , location_type_id , location_lpn) 
@@ -37,11 +65,11 @@ select * from account_average_cost;
 \echo Received 100 THING1 @ $10/unit and 25 WIDGET2 @ $10/unit
 
 insert into journal default values returning entry_id \gset
-insert into posting (entry_id, account_id, sku, quantity, unit_cost) values
-(:entry_id, 1, 'THING1', -100, 10),
-(:entry_id, 2, 'THING1',  100, null),
-(:entry_id, 7, 'WIDGET2', -25, 10),
-(:entry_id, 8, 'WIDGET2',  25, null);
+insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measure_id, unit_cost) values
+(:entry_id, 1, 'THING1', -100, 1, item_uom, 10),
+(:entry_id, 2, 'THING1',  100, 1, item_uom, null),
+(:entry_id, 7, 'WIDGET2', -25, 40, yards_uom, 10),
+(:entry_id, 8, 'WIDGET2',  25, 40, yards_uom, null);
 
 select account_id, quantity, average_cost
 from account_average_cost

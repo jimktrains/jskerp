@@ -16,6 +16,9 @@ create table account_fifo_cost (
   account_id bigint references account(account_id) not null,
   entry_id bigint references journal(entry_id) not null,
   quantity numeric(10,4) not null check(quantity >= 0),
+  measure numeric(10,4) not null check(measure > 0),
+  unit_of_measure_id bigint not null references unit_of_measure,
+  divisible boolean not null,
   unit_cost numeric(10,4) not null
 );
 
@@ -25,8 +28,8 @@ as $$
 begin
   -- Add in any new costs from the debits.
   insert into account_fifo_cost
-  (account_id, entry_id, quantity,  unit_cost)
-  select account_id, entry_id, -quantity,  unit_cost
+  (account_id, entry_id, quantity,  measure, unit_of_measure_id, divisible, unit_cost)
+  select account_id, entry_id, -quantity,  measure, unit_of_measure_id, divisible, unit_cost
   from new_postings
   where quantity < 0 and unit_cost is not null;
 
@@ -47,12 +50,18 @@ begin
            account_id as debit_account_id,
            entry_id as debit_entry_id,
            quantity as debit_quantity,
+           measure as debit_measure,
+           unit_of_measure_id as debit_unit_of_measure_id,
+           divisible as debit_divsible,
            unit_cost as debit_unit_cost,
            row_number() over sku_w as m
     from (
       select account_id,
              entry_id,
              quantity,
+             measure,
+             unit_of_measure_id,
+             divisible,
              unit_cost,
              sum(-quantity) over sku_w as debit_total_quantity,
              coalesce(sum(-quantity) over sku_m1_w, 0) as debit_prev_total_quantity
@@ -74,11 +83,14 @@ begin
            entry_id as credit_entry_id,
            sku,
            quantity as credit_quantity,
+           measure as credit_measure,
+           unit_of_measure as credit_unit_of_measure,
+           divisible as credit_divisble,
            row_number() over sku_w as n
     from new_postings
     where new_postings.quantity > 0
     window sku_w as (partition by sku order by sku, account_id, entry_id asc rows between unbounded preceding and current row)
-    order by sku, account_id, entry_id
+    order by quantity, sku, account_id, entry_id
   ),
   -- Generates a movement table so that we know how many of each account
   -- at a cost moves into a credit account.
