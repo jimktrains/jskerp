@@ -12,21 +12,19 @@ create function check_measure_increment()
 returns trigger
 as $$
 declare
-  good boolean;
+  diff numeric(10,4);
   uom_incremental numeric(10,4);
   uom_name text;
 begin
-  select (new.measure - (floor(new.measure*incremental)/incremental)) = 0,
-         incremental,
+  select incremental,
          name
-  into good,
-       uom_incremental,
+  into uom_incremental,
        uom_name
   from unit_of_measure
   where unit_of_measure_id = new.unit_of_measure_id;
 
-  if not(good) then
-    raise '% is not an increment of % for % (%)', new.measure, uom_incremental, uom_name, new.unit_of_measure_id;
+  if diff <> 0 then
+    raise '% is not an increment of % for % (uom=%) (%)', new.measure, uom_incremental, uom_name, new.unit_of_measure_id, diff;
   end if;
 
   return new;
@@ -83,8 +81,8 @@ create table posting (
   entry_id bigint not null references journal,
   account_id bigint not null references account,
   sku text not null references item,
-  quantity decimal(10,4) not null,
-  measure decimal(10,4) not null,
+  quantity integer not null,
+  measure decimal(10,4) not null check(measure > 0),
   unit_of_measure_id bigint references unit_of_measure,
   unit_cost decimal(10,4),
   unique(account_id, entry_id),

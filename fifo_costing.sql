@@ -39,7 +39,6 @@ declare
   debits cursor (forcredit posting%rowtype) for
     select account_fifo_cost.account_fifo_cost_id,
            account_fifo_cost.account_id,
-           account_fifo_cost.entry_id,
            account_fifo_cost.sku,
            account_fifo_cost.entry_id,
            account_fifo_cost.quantity,
@@ -61,13 +60,32 @@ declare
         or
         (not(combinable) and not(divisible) and account_fifo_cost.measure = forcredit.measure)
       )
+    order by account_fifo_cost.entry_id asc
     ;
 begin
   insert into account_fifo_cost
   (account_id, entry_id, sku, quantity,  measure, unit_of_measure_id, unit_cost)
-  select account_id, entry_id, sku, -quantity,  measure, unit_of_measure_id, unit_cost
+  select account_id,
+         entry_id,
+         sku,
+         -- Normalize quantity and measure for items that are
+         -- combinable and divisible at will. This simplifies movements
+         -- considerably.
+         case
+           when combinable and divisible then -quantity * measure / incremental
+           else -quantity
+         end as quantity,
+         case
+           when combinable and divisible then incremental
+           else measure
+         end as measure,
+         unit_of_measure_id,
+         unit_cost
   from new_postings
-  where quantity < 0 and unit_cost is not null;
+  join unit_of_measure using (unit_of_measure_id)
+  where quantity < 0
+    and unit_cost is not null;
+
 
   create temporary table debit_source as (
     select account_fifo_cost.account_fifo_cost_id,
@@ -78,7 +96,8 @@ begin
            account_fifo_cost.unit_of_measure_id,
            account_fifo_cost.unit_cost,
            combinable,
-           divisible
+           divisible,
+           incremental
     from account_fifo_cost
     join new_postings using (account_id, unit_of_measure_id)
     join unit_of_measure using (unit_of_measure_id)
@@ -94,17 +113,63 @@ begin
   for credit in credits loop
     debit_count := 0;
 
+
     for debit in debits(credit) loop
       debit_count = debit_count + 1;
+
+      -- Normalize quantity and measure for items that are
+      -- combinable and divisible at will. This simplifies movements
+      -- considerably.
+      --
+      -- Right now the credits and debits need to have the same unit of
+      -- measurement, so this is OK. It's also idempotent in that furter
+      -- applications have no effect because measure = incremental at that
+      -- point.
+      if debit.combinable and debit.divisible then
+        credit.quantity = credit.quantity * debit.measure / debit.incremental;
+        credit.measure = incremental;
+      end if;
+
       case
-        when (debit.combinable and debit.divisible) then
+        -- Items that are combinable and divisible are items like dirt, gravel,
+        -- or deli cheese. We can split a pile and then combine splits from
+        -- different piles into new piles. These are all normalized to the
+        -- same measure unit.
+        --
+        -- Otherwise, if the debit and credit have the same measure, we
+        -- can simplify the calculation because there is no need to
+        -- split an item to obtain the correct measure.
+        when debit.measure = credit.measure then
+          debit_quantity_moved := least(debit.quantity, credit.quantity);
+          ttl_credit_quantity_moved := debit_quantity_moved;
+          credit.quantity = credit.quantity - ttl_credit_quantity_moved;
+
+          update account_fifo_cost
+          set quantity = quantity - debit_quantity_moved
+          where account_fifo_cost_id = debit.account_fifo_cost_id;
+
+          insert into account_fifo_cost
+          (account_id, sku, entry_id, quantity, measure, unit_of_measure_id, unit_cost)
+          values
+          (credit.account_id, credit.sku, credit.entry_id, ttl_credit_quantity_moved, credit.measure, credit.unit_of_measure_id, debit.unit_cost)
+          ;
+
+        -- These are things like ?
         when (debit.combinable and debit.measure <= credit.measure) then
+
+        -- These are items like fabric. We can split fabric into many cuts, but
+        -- we cannot recombine many cuts into a new cut.
         when (debit.divisible and debit.measure >= credit.measure) then
           -- ex 1: debit=3@5yd credit=5@2yd
           -- ex 2: debit=25@40yd credit=25@20yd
 
           -- ex 1: floor(5 debit measures / debit item /2 credit measure / credit item) = 2 credit items per debit item
           -- ex 2: floor(40/20) = 2
+
+          -- Floor because since this isn't combinable we can't take
+          -- a partial amount from this debit item and apply it to another
+          -- credit item such that the partial amount doesn't fulfil the
+          -- measure of the credit item.
           ratio := floor(debit.measure / credit.measure);
 
           -- ex 1: floor(4 credit items/ 2 credit items / debit item) = 2 debit items
@@ -133,9 +198,7 @@ begin
           -- ex 2: 12 * 2 = 24
           ttl_credit_quantity_moved := debit_quantity_moved * ratio;
 
-
-
-          -- Check if there's anough of hte debits to satisfy any credits
+          -- Check if there's anough of the debits to satisfy any credits
           -- This should only happen after all of the ratio-increment movments
           -- have been done.
           if debit.quantity > debit_quantity_moved and credit.quantity > ttl_credit_quantity_moved and (credit.quantity - ttl_credit_quantity_moved) < ratio then
@@ -174,22 +237,21 @@ begin
           values
           (credit.account_id, credit.sku, credit.entry_id, ttl_credit_quantity_moved, credit.measure, credit.unit_of_measure_id, debit.unit_cost)
           ;
-        when (not(debit.combinable) and not(debit.divisible) and debit.measure = credit.measure) then
-          debit_quantity_moved := least(debit.quantity, credit.quantity);
-          ttl_credit_quantity_moved := debit_quantity_moved;
-          credit.quantity = credit.quantity - ttl_credit_quantity_moved;
 
-          update account_fifo_cost
-          set quantity = quantity - debit_quantity_moved
-          where account_fifo_cost_id = debit.account_fifo_cost_id;
-
-          insert into account_fifo_cost
-          (account_id, sku, entry_id, quantity, measure, unit_of_measure_id, unit_cost)
-          values
-          (credit.account_id, credit.sku, credit.entry_id, ttl_credit_quantity_moved, credit.measure, credit.unit_of_measure_id, debit.unit_cost)
-          ;
+        -- These are things like whole widgets. We cannot combine or divide
+        -- them.
+        --
+        -- TODO: Right now we can only move between them if their measures are
+        -- the same, although that's not strictly true and will probably change
+        -- later. For instance, if I order 2 widgets, and I have a bin where
+        -- each item is 2 measures of a widget, that should be able to fulfill
+        -- a need for 2 widets.
+        when (not(debit.combinable) and not(debit.divisible)) then
       end case;
     end loop;
+    if credit.quantity <> 0 then
+      raise 'Unable to fulfil posting_id=% for % qty=%@%', credit.posting_id, credit.sku, credit.quantity, credit.measure;
+    end if;
   end loop;
 
   -- Clean up empty accounts so that we're not littering our table.
