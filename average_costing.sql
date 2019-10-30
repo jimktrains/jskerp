@@ -39,7 +39,7 @@ begin
   with new_postings_debit_avg_unit_cost AS (
     select entry_id,
            sku,
-           sum(abs(quantity) * coalesce(unit_cost, average_cost))/sum(abs(quantity)) as posting_avg_unit_cost
+           sum(abs(quantity * measure) * coalesce(unit_cost, average_cost))/sum(abs(quantity * measure)) as posting_avg_unit_cost
     from new_postings
     join account_average_cost using (account_id)
     where quantity < 0
@@ -49,17 +49,17 @@ begin
   -- accounts.
   account_credit_avg_unit_cost AS (
     select account_id,
-           sum(quantity) as credit_quantity,
-           sum(quantity * posting_avg_unit_cost) / sum(quantity) as credit_avg_cost
+           sum(quantity * measure) as credit_quantity_measure,
+           sum(quantity * measure * posting_avg_unit_cost) / sum(quantity * measure) as credit_avg_cost
     from new_postings
     join new_postings_debit_avg_unit_cost using (entry_id, sku)
-    where quantity > 0
+    where quantity * measure > 0
     group by account_id
   ),
   -- Compute the new average cost of the credit account.
   account_credit_avg_cost AS (
     select account_id,
-           ((credit_quantity * credit_avg_cost) + (quantity * average_cost))/(credit_quantity+quantity) as new_account_avg_cost
+           ((credit_quantity_measure * credit_avg_cost) + (quantity * measure * average_cost))/(credit_quantity_measure+ (quantity * measure)) as new_account_avg_cost
     from account_credit_avg_unit_cost
     join account using (account_id)
     join account_average_cost using (account_id)

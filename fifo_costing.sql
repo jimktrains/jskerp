@@ -12,230 +12,232 @@ SET search_path TO inventory, public;
 --   account3, transaction1, 15, $2
 -- so, we shouldn't combine by price or entry.
 create table account_fifo_cost (
-  account_fifo_cost bigserial primary key,
+  account_fifo_cost_id bigserial primary key,
   account_id bigint references account(account_id) not null,
+  sku text not null references item,
   entry_id bigint references journal(entry_id) not null,
   quantity numeric(10,4) not null check(quantity >= 0),
   measure numeric(10,4) not null check(measure > 0),
   unit_of_measure_id bigint not null references unit_of_measure,
-  divisible boolean not null,
-  unit_cost numeric(10,4) not null
+  unit_cost numeric(10,4) not null,
+  foreign key (account_id, sku, unit_of_measure_id) references account (account_id, sku, unit_of_measure_id)
 );
 
-create or replace function function_update_fifo_cost ()
+create function function_update_fifo_cost()
 returns trigger
 as $$
+declare
+  credits cursor for select * from credit_sink;
+  credit posting%rowtype;
+  debit record;
+  debit_count int;
+  ratio int;
+  rem int;
+  debit_quantity_moved int;
+  ttl_credit_quantity_moved int;
+  remaining_measure numeric(10,4);
+  debits cursor (forcredit posting%rowtype) for
+    select account_fifo_cost.account_fifo_cost_id,
+           account_fifo_cost.account_id,
+           account_fifo_cost.entry_id,
+           account_fifo_cost.sku,
+           account_fifo_cost.entry_id,
+           account_fifo_cost.quantity,
+           account_fifo_cost.measure,
+           account_fifo_cost.unit_of_measure_id,
+           account_fifo_cost.unit_cost,
+           combinable,
+           divisible
+    from account_fifo_cost
+    join new_postings using (account_id, unit_of_measure_id)
+    join unit_of_measure using (unit_of_measure_id)
+    where new_postings.quantity < 0 and account_fifo_cost.sku = forcredit.sku
+      and (
+        (combinable and divisible)
+        or
+        (combinable and account_fifo_cost.measure <= forcredit.measure)
+        or
+        (divisible and account_fifo_cost.measure >= forcredit.measure)
+        or
+        (not(combinable) and not(divisible) and account_fifo_cost.measure = forcredit.measure)
+      )
+    ;
 begin
-  -- Add in any new costs from the debits.
   insert into account_fifo_cost
-  (account_id, entry_id, quantity,  measure, unit_of_measure_id, divisible, unit_cost)
-  select account_id, entry_id, -quantity,  measure, unit_of_measure_id, divisible, unit_cost
+  (account_id, entry_id, sku, quantity,  measure, unit_of_measure_id, unit_cost)
+  select account_id, entry_id, sku, -quantity,  measure, unit_of_measure_id, unit_cost
   from new_postings
   where quantity < 0 and unit_cost is not null;
 
-  with recursive
-  -- Computes how many items from each account are going to move.
-  account_debit_quantity_needed as (
-    select account_id, 
-           sku,
-           sum(-quantity) as quantity_needed
-    from new_postings
-    where quantity < 0
-    group by account_id, sku
-  ),
-  -- Orders the debit source account costs by entry so that the oldest
-  -- is used. Adds in sequential row numbers by sku.
-  debit_source as (
-    select sku,
-           account_id as debit_account_id,
-           entry_id as debit_entry_id,
-           quantity as debit_quantity,
-           measure as debit_measure,
-           unit_of_measure_id as debit_unit_of_measure_id,
-           divisible as debit_divsible,
-           unit_cost as debit_unit_cost,
-           row_number() over sku_w as m
-    from (
-      select account_id,
-             entry_id,
-             quantity,
-             measure,
-             unit_of_measure_id,
-             divisible,
-             unit_cost,
-             sum(-quantity) over sku_w as debit_total_quantity,
-             coalesce(sum(-quantity) over sku_m1_w, 0) as debit_prev_total_quantity
-      from account_fifo_cost
-      window sku_w as (partition by account_id order by account_id asc, entry_id asc, unit_cost asc rows between unbounded preceding and current row),
-             sku_m1_w as (partition by account_id order by account_id asc, entry_id asc, unit_cost asc rows between unbounded preceding and 1 preceding)
-    ) x
-    join account_debit_quantity_needed using (account_id)
-    where quantity_needed > debit_total_quantity 
-       or quantity_needed between debit_prev_total_quantity and debit_total_quantity
-    window sku_w as (partition by account_id order by account_id asc, entry_id asc, unit_cost asc rows between unbounded preceding and current row)
-    order by sku, account_id, entry_id
+  create temporary table debit_source as (
+    select account_fifo_cost.account_fifo_cost_id,
+           account_fifo_cost.sku,
+           account_fifo_cost.entry_id,
+           account_fifo_cost.quantity,
+           account_fifo_cost.measure,
+           account_fifo_cost.unit_of_measure_id,
+           account_fifo_cost.unit_cost,
+           combinable,
+           divisible
+    from account_fifo_cost
+    join new_postings using (account_id, unit_of_measure_id)
+    join unit_of_measure using (unit_of_measure_id)
+    where new_postings.quantity < 0
+  );
 
-  ),
-  -- Orders the credit accounts (arbitraily). Adds in a sequential row
-  -- number by sku.
-  credit_sink as (
-    select account_id as credit_account_id,
-           entry_id as credit_entry_id,
-           sku,
-           quantity as credit_quantity,
-           measure as credit_measure,
-           unit_of_measure as credit_unit_of_measure,
-           divisible as credit_divisble,
-           row_number() over sku_w as n
+  create temporary table credit_sink as (
+    select *
     from new_postings
     where new_postings.quantity > 0
-    window sku_w as (partition by sku order by sku, account_id, entry_id asc rows between unbounded preceding and current row)
-    order by quantity, sku, account_id, entry_id
-  ),
-  -- Generates a movement table so that we know how many of each account
-  -- at a cost moves into a credit account.
+  );
 
-  -- 1. Using the sequential row numbers above, starting with the first
-  --   credit and debit account for each sku.
-  -- 2. Figure out how many credits and debits are consumed in the move and
-  --   how many remain.
-  -- 3. If there are items remaining in an account, don't move to the next
-  --   account, otherwise move to the next account.
-  -- 4. Get the next appropriate accounts and go to 2 or complete
-  movement as (
-    select sku,
-           credit_account_id,
-           credit_entry_id,
-           credit_quantity,
-           n,
-           debit_account_id,
-           debit_entry_id,
-           debit_quantity,
-           debit_unit_cost,
-           m,
-           quantity_moved,
-           debit_quantity_remaining,
-           credit_quantity_remaining,
-           n + (credit_quantity_remaining = 0)::integer as next_n,
-           m + (debit_quantity_remaining = 0)::integer as next_m
-    from (
-      select *,
-             debit_quantity - quantity_moved as debit_quantity_remaining,
-             credit_quantity - quantity_moved as credit_quantity_remaining
-      from (
-        select sku,
-               credit_account_id,
-               credit_entry_id,
-               credit_quantity,
-               n,
-               debit_account_id,
-               debit_entry_id,
-               debit_quantity,
-               debit_unit_cost,
-               m,
-               least(debit_quantity, credit_quantity) as quantity_moved
-        from debit_source
-        join credit_sink using (sku)
-        where n = 1 and m = 1
-      ) y
-    ) x
+  for credit in credits loop
+    debit_count := 0;
 
-    union all
+    for debit in debits(credit) loop
+      debit_count = debit_count + 1;
+      case
+        when (debit.combinable and debit.divisible) then
+        when (debit.combinable and debit.measure <= credit.measure) then
+        when (debit.divisible and debit.measure >= credit.measure) then
+          -- ex 1: debit=3@5yd credit=5@2yd
+          -- ex 2: debit=25@40yd credit=25@20yd
 
-    select sku,
-           credit_account_id,
-           credit_entry_id,
-           credit_quantity,
-           n,
-           debit_account_id,
-           debit_entry_id,
-           debit_quantity,
-           debit_unit_cost,
-           m,
-           -- this cast scares me because it means I've screwed something up
-           -- somewhere.
-           quantity_moved::numeric(10,4),
-           debit_quantity_remaining,
-           credit_quantity_remaining,
-           n + (credit_quantity_remaining = 0)::integer as next_n,
-           m + (debit_quantity_remaining = 0)::integer as next_m
-    from (
-      select sku,
-             credit_account_id,
-             credit_entry_id,
-             credit_quantity,
-             n,
-             debit_account_id,
-             debit_entry_id,
-             debit_quantity,
-             debit_unit_cost,
-             m,
-             quantity_moved,
-             debit_quantity_remaining - quantity_moved as debit_quantity_remaining,
-             credit_quantity_remaining - quantity_moved as credit_quantity_remaining
-      from (
-        select *,
-               least(debit_quantity_remaining, credit_quantity_remaining) as quantity_moved             
-        from (
-          select sku,
-                 credit_sink.credit_account_id,
-                 credit_sink.credit_entry_id,
-                 credit_sink.credit_quantity,
-                 credit_sink.n,
-                 debit_source.debit_account_id,
-                 debit_source.debit_entry_id,
-                 debit_source.debit_quantity,
-                 debit_source.debit_unit_cost,
-                 debit_source.m,
+          -- ex 1: floor(5 debit measures / debit item /2 credit measure / credit item) = 2 credit items per debit item
+          -- ex 2: floor(40/20) = 2
+          ratio := floor(debit.measure / credit.measure);
 
-                 coalesce(nullif(debit_quantity_remaining, 0::numeric(10,4)), debit_source.debit_quantity) as debit_quantity_remaining,
-                 coalesce(nullif(credit_quantity_remaining, 0::numeric(10,4)), credit_sink.credit_quantity) as credit_quantity_remaining
-          from movement
-          join debit_source using (sku)
-          join credit_sink using (sku)
-          where movement.next_n = credit_sink.n 
-            and movement.next_m = debit_source.m
-        ) z
-      ) y
-    ) x
+          -- ex 1: floor(4 credit items/ 2 credit items / debit item) = 2 debit items
+          -- ex 2: floor(25 / 2) = 12
+          debit_quantity_moved := floor(credit.quantity / ratio);
+
+          -- ex 1: least(2, 10) = 2
+          -- ex 2: least(12, 25) = 12
+          debit_quantity_moved := least(debit_quantity_moved, debit.quantity);
+
+          -- ex 1: ((5 - (2 * 2)) = 1)yd
+          -- ex 2: 40 - (20 * 2) = 0yd
+          remaining_measure :=  debit.measure - (credit.measure * ratio);
+
+          -- ex 1: insert 2@1yd
+          -- ex 2: don't insert
+          if remaining_measure > 0 then
+            insert into account_fifo_cost
+            (account_id, sku, entry_id, quantity, measure, unit_of_measure_id, unit_cost)
+            values
+            (debit.account_id, debit.sku, debit.entry_id, debit_quantity_moved, remaining_measure, debit.unit_of_measure_id, debit.unit_cost)
+            ;
+          end if;
+
+          -- ex 1: 2 * 2 = 4
+          -- ex 2: 12 * 2 = 24
+          ttl_credit_quantity_moved := debit_quantity_moved * ratio;
+
+
+
+          -- Check if there's anough of hte debits to satisfy any credits
+          -- This should only happen after all of the ratio-increment movments
+          -- have been done.
+          if debit.quantity > debit_quantity_moved and credit.quantity > ttl_credit_quantity_moved and (credit.quantity - ttl_credit_quantity_moved) < ratio then
+            -- Since there can't be any more than would fit in a since debit item
+            -- Subtract one more from the quantity.
+            debit_quantity_moved := debit_quantity_moved + 1;
+
+            -- Subtract the measure used in this last cut from the debit.
+            --
+            -- ex 1: 5 debit measure - (2 credit measure / credit item * 1 credit item / credit measure) = 3 debit meausres
+            -- ex 2: 40 - (20 * (25 - 24)) = 20
+            remaining_measure :=  debit.measure - (credit.measure * (credit.quantity - ttl_credit_quantity_moved));
+
+            if remaining_measure > 0 then
+              insert into account_fifo_cost
+              (account_id, sku, entry_id, quantity, measure, unit_of_measure_id, unit_cost)
+              values
+              (debit.account_id, debit.sku, debit.entry_id, 1, remaining_measure, debit.unit_of_measure_id, debit.unit_cost)
+              ;
+            end if;
+            -- If we're here, we're finishing off the credits.
+            ttl_credit_quantity_moved := credit.quantity;
+          end if;
+
+          -- ex 1: 2 debit items * 2 credit items per debit item = 4 credit items
+          credit.quantity := credit.quantity - ttl_credit_quantity_moved;
+
+          -- ex 1: subtract 2@5yd
+          update account_fifo_cost
+          set quantity = quantity - debit_quantity_moved
+          where account_fifo_cost_id = debit.account_fifo_cost_id;
+
+
+          insert into account_fifo_cost
+          (account_id, sku, entry_id, quantity, measure, unit_of_measure_id, unit_cost)
+          values
+          (credit.account_id, credit.sku, credit.entry_id, ttl_credit_quantity_moved, credit.measure, credit.unit_of_measure_id, debit.unit_cost)
+          ;
+        when (not(debit.combinable) and not(debit.divisible) and debit.measure = credit.measure) then
+          debit_quantity_moved := least(debit.quantity, credit.quantity);
+          ttl_credit_quantity_moved := debit_quantity_moved;
+          credit.quantity = credit.quantity - ttl_credit_quantity_moved;
+
+          update account_fifo_cost
+          set quantity = quantity - debit_quantity_moved
+          where account_fifo_cost_id = debit.account_fifo_cost_id;
+
+          insert into account_fifo_cost
+          (account_id, sku, entry_id, quantity, measure, unit_of_measure_id, unit_cost)
+          values
+          (credit.account_id, credit.sku, credit.entry_id, ttl_credit_quantity_moved, credit.measure, credit.unit_of_measure_id, debit.unit_cost)
+          ;
+      end case;
+    end loop;
+  end loop;
+
+  -- Clean up empty accounts so that we're not littering our table.
+  delete from account_fifo_cost where quantity = 0;
+
+  with agg as (
+    select account_id, 
+           entry_id,
+           sku,
+           unit_cost,
+           measure,
+           unit_of_measure_id,
+           sum(quantity) as quantity
+    from account_fifo_cost
+    where entry_id in (select distinct entry_id from new_postings)
+    group by account_id,
+             entry_id,
+             sku,
+             unit_cost,
+             measure,
+             unit_of_measure_id
   ),
-  -- Combines all movements by debit account cost to make the update easier.
-  total_debited as (
-    select debit_account_id as account_id,
-           debit_entry_id as entry_id,
-           sum(quantity_moved) as quantity_moved,
-           debit_unit_cost as unit_cost
-    from movement
-    group by debit_account_id, debit_entry_id, debit_unit_cost
-  ),
-  -- Combines all the movmenets by credit account and cost to make the
-  -- insert easier.
-  total_credited as (
-    select credit_account_id as account_id,
-           credit_entry_id as entry_id,
-           sum(quantity_moved) as quantity_moved,
-           debit_unit_cost as unit_cost
-    from movement
-    group by credit_account_id, credit_entry_id, debit_unit_cost
-  ),
-  -- Update the debits.
-  update_debits_account_fifo_cost as (
-    update account_fifo_cost
-    set quantity = quantity - quantity_moved
-    from total_debited
-    where total_debited.account_id = account_fifo_cost.account_id
-      and total_debited.entry_id = account_fifo_cost.entry_id
-      and total_debited.unit_cost = account_fifo_cost.unit_cost 
+  del as (
+    delete
+    from account_fifo_cost
+    using agg
+    where agg.account_id = account_fifo_cost.account_id
+      and agg.entry_id = account_fifo_cost.entry_id
+      and agg.sku = account_fifo_cost.sku
+      and agg.unit_cost = account_fifo_cost.unit_cost
+      and agg.measure = account_fifo_cost.measure
+      and agg.unit_of_measure_id = account_fifo_cost.unit_of_measure_id
   )
-  -- Insert the credits.
   insert into account_fifo_cost
-  (account_id, entry_id, quantity, unit_cost)
-  select account_id, entry_id, quantity_moved, unit_cost
-  from total_credited;
+  (account_id, entry_id, sku, unit_cost, measure, unit_of_measure_id, quantity)
+  select account_id,
+         entry_id,
+         sku,
+         unit_cost,
+         measure,
+         unit_of_measure_id,
+         quantity
+  from agg;
 
-  -- Clean up the debit account costs that have no quantity in them.
-  delete from account_fifo_cost
-  where quantity = 0;
+  -- Clean up after ourselves, although I'm not super fond of having to
+  -- do this in the first place.
+  drop table debit_source;
+  drop table credit_sink;
 
   return new;
 end;

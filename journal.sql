@@ -1,10 +1,11 @@
 SET search_path TO inventory, public;
 
-create unit_of_measure (
+create table unit_of_measure (
   unit_of_measure_id bigserial primary key,
   name text not null,
   incremental numeric(10,4) not null check(incremental > 0),
   divisible boolean not null,
+  combinable boolean not null
 );
 
 create function check_measure_increment()
@@ -12,17 +13,20 @@ returns trigger
 as $$
 declare
   good boolean;
-  incremental numeric(10,4);
-  name text;
+  uom_incremental numeric(10,4);
+  uom_name text;
 begin
-  select (new.measure - (floor(new.measure*incremental)/incremental)) = 0 into good,
-         incremental into incremental,
-         name into name
+  select (new.measure - (floor(new.measure*incremental)/incremental)) = 0,
+         incremental,
+         name
+  into good,
+       uom_incremental,
+       uom_name
   from unit_of_measure
   where unit_of_measure_id = new.unit_of_measure_id;
 
-  if not(good) then;
-    raise '% is not an increment of % for % (%)', new.measure, incremental, name, new.unit_of_measure_id;
+  if not(good) then
+    raise '% is not an increment of % for % (%)', new.measure, uom_incremental, uom_name, new.unit_of_measure_id;
   end if;
 
   return new;
@@ -31,7 +35,8 @@ $$ language plpgsql;
 
 create table item (
   sku text primary key,
-  unit_of_measure_id bigint not null references unit_of_measure
+  unit_of_measure_id bigint not null references unit_of_measure,
+  unique (sku, unit_of_measure_id)
 );
 
 create table account_type (
@@ -57,7 +62,7 @@ create table account (
   quantity decimal(10,4) not null,
   measure decimal(10,4) not null,
   unit_of_measure_id bigint references unit_of_measure,
-  foreign key (sku, unit_of_measure_id) references item(sku, unit_of_measure_id)
+  foreign key (sku, unit_of_measure_id) references item(sku, unit_of_measure_id),
   unique (location_id, account_type_id, sku),
   unique (account_id, sku),
   unique (account_id, sku, unit_of_measure_id)
@@ -68,7 +73,6 @@ before insert or update
 on account
 for each row
 execute procedure check_measure_increment();
-
 
 create table journal (
   entry_id bigserial primary key
@@ -83,7 +87,6 @@ create table posting (
   measure decimal(10,4) not null,
   unit_of_measure_id bigint references unit_of_measure,
   unit_cost decimal(10,4),
-  divisible boolean not null,
   unique(account_id, entry_id),
   -- The way I've written the accounting portion, unit_costs can only be
   -- introduced on debits.
@@ -91,8 +94,8 @@ create table posting (
   foreign key (account_id, sku, unit_of_measure_id) references account(account_id, sku, unit_of_measure_id)
 );
 
-create trigger trigger_account_check_measure
+create trigger trigger_posting_check_measure
 before insert or update
-on account
+on posting
 for each row
 execute procedure check_measure_increment();

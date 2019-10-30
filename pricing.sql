@@ -1,3 +1,8 @@
+set search_path TO inventory, public;
+
+-- WIP
+-- Eventually this will be a pricing and promotions system.
+
 drop view current_item_price;
 drop table item_price;
 

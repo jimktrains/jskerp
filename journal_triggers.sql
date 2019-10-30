@@ -1,3 +1,5 @@
+set search_path to inventory, public;
+
 create or replace function function_update_inventory_quantity ()
 returns trigger
 as $$
@@ -26,7 +28,7 @@ begin
       select
       from new_postings
       group by entry_id, sku
-      having sum(quantity) <> 0
+      having sum(quantity * measure) <> 0
     ) then
    raise exception 'Journal Entry(ies) Not Balanced';
   end if;
