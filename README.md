@@ -1,17 +1,23 @@
-# pgerp
+# jskerp
 An proof-of-concept ERP system using PostgreSQL.  Starting as a test of
-transition tables, as such there is a consicous absence of additional indices.
+transition tables, as such there is a consicous absence of additional
+indices.
 
-This is a work in progress. Currently a system similar to double-entry
-accounting is used to keep track of the flow of inventory. Basic Average and
-First-in-first-out (FIFO) costings are implemented.
+This is an experiment and a work in progress.
+A double-entry accounting is used to keep track of the flow of
+inventory. Rudimentry Average and First-in-first-out (FIFO) costings are
+implemented.
 
-Currently working on building out commiting items from an order.
+# Bugs
+
+I'm using [git-bug](https://github.com/MichaelMure/git-bug) as an
+experiment in this experimental project.
 
 # Test
 
-Running `make clean && make` will drop and create the db "pgerp" (`make clean`)
-and then load the schema and triggers and run a quick sample/test (`make`).
+Running `make clean install test` will drop and create the db "jskerp"
+(`make clean`) and then load the schema and triggers (`make install`)
+and run a quick sample/test (`make test`).
 
 ```sql
 dropdb --if-exists jskerp

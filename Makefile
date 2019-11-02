@@ -1,5 +1,3 @@
-all: clean install test
-
 PSQL_OPTS=-v ON_ERROR_STOP=1
 DB=jskerp
 
