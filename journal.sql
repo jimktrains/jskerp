@@ -8,29 +8,6 @@ create table unit_of_measure (
   combinable boolean not null
 );
 
-create function check_measure_increment()
-returns trigger
-as $$
-declare
-  diff numeric(10,4);
-  uom_incremental numeric(10,4);
-  uom_name text;
-begin
-  select incremental,
-         name
-  into uom_incremental,
-       uom_name
-  from unit_of_measure
-  where unit_of_measure_id = new.unit_of_measure_id;
-
-  if diff <> 0 then
-    raise '% is not an increment of % for % (uom=%) (%)', new.measure, uom_incremental, uom_name, new.unit_of_measure_id, diff;
-  end if;
-
-  return new;
-end;
-$$ language plpgsql;
-
 create table item (
   sku text primary key,
   unit_of_measure_id bigint not null references unit_of_measure,
@@ -66,12 +43,6 @@ create table account (
   unique (account_id, sku, unit_of_measure_id)
 );
 
-create trigger trigger_account_check_measure
-before insert or update
-on account
-for each row
-execute procedure check_measure_increment();
-
 create table journal (
   entry_id bigserial primary key
 );
@@ -92,8 +63,3 @@ create table posting (
   foreign key (account_id, sku, unit_of_measure_id) references account(account_id, sku, unit_of_measure_id)
 );
 
-create trigger trigger_posting_check_measure
-before insert or update
-on posting
-for each row
-execute procedure check_measure_increment();

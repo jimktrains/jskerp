@@ -17,11 +17,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 7, 'WIDGET2', -25, 40, :yards_uom, 25),
 (:entry_id, 8, 'WIDGET2',  25, 40, :yards_uom, null);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -32,11 +34,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 1, 'THING1', -100, 1, :item_uom, 15),
 (:entry_id, 2, 'THING1',  100, 1, :item_uom, null);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -47,11 +51,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 2, 'THING1', -50, 1, :item_uom),
 (:entry_id, 3, 'THING1',  50, 1, :item_uom);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -62,11 +68,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 1, 'THING1', -100, 1, :item_uom, 13),
 (:entry_id, 2, 'THING1',  100, 1, :item_uom, null);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -77,11 +85,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 2, 'THING1', -50, 1, :item_uom),
 (:entry_id, 3, 'THING1',  50, 1, :item_uom);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -92,11 +102,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 3, 'THING1', -12, 1, :item_uom),
 (:entry_id, 4, 'THING1',  12, 1, :item_uom);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -107,11 +119,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 4, 'THING1', -2, 1, :item_uom),
 (:entry_id, 5, 'THING1',  2, 1, :item_uom);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -122,11 +136,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 5, 'THING1', -2, 1, :item_uom),
 (:entry_id, 6, 'THING1',  2, 1, :item_uom);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -144,11 +160,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 
 \set ON_ERROR_STOP :old_error_stop
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -159,11 +177,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 (:entry_id, 8, 'WIDGET2', -5, 1.5, :yards_uom),
 (:entry_id, 9, 'WIDGET2', 5, 1.5, :yards_uom);
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;
@@ -180,11 +200,13 @@ insert into posting (entry_id, account_id, sku, quantity, measure, unit_of_measu
 
 \set ON_ERROR_STOP :old_error_stop
 
+\echo Averae Costs
 select account_id, quantity, average_cost
 from account_average_cost
 join account using (account_id)
 order by account_id;
 
+\echo FIFO Cost
 select account_id, entry_id, quantity, measure, unit_cost
 from account_fifo_cost
 order by account_id, entry_id;

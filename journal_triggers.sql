@@ -72,3 +72,38 @@ on posting
 referencing new table as new_postings
 for each statement
 execute procedure function_check_new_entity_is_new();
+
+create function check_measure_increment()
+returns trigger
+as $$
+declare
+  diff numeric(10,4);
+  uom_incremental numeric(10,4);
+  uom_name text;
+begin
+  select incremental,
+         name
+  into uom_incremental,
+       uom_name
+  from unit_of_measure
+  where unit_of_measure_id = new.unit_of_measure_id;
+
+  if diff <> 0 then
+    raise '% is not an increment of % for % (uom=%) (%)', new.measure, uom_incremental, uom_name, new.unit_of_measure_id, diff;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trigger_account_check_measure
+before insert or update
+on account
+for each row
+execute procedure check_measure_increment();
+
+create trigger trigger_posting_check_measure
+before insert or update
+on posting
+for each row
+execute procedure check_measure_increment();
